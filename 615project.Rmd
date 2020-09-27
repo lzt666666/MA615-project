@@ -1,0 +1,169 @@
+---
+title: 'Find the evidence of global warming by analyzing data collected by a weather
+  buoy for the last 20 years '
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+# **setup and install package**
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(dplyr)
+```
+
+# ***Introduction***
+
+For this project, I want to answer 1 question by analyzing the historical data
+from National Data Buoy Center: Is the global warming a real thing? 
+
+# ***Installing the data***
+Firstly, we need to install and clean the raw data.
+
+After checking the data from 2000-2019, 20 tables online,we found that these tables are similar but different. The tables of the later years have one more column "minute". Besides, the columns name may be different between each year's table. Also, some tables don't even have a header.
+
+To merge these 20 tables into 1. I decide to delete all the original column names and re-title the tables consistently. 
+
+```{r}
+### make URLs
+
+url1 <- "http://www.ndbc.noaa.gov/view_text_file.php?filename=mlrf1h"
+url2 <- ".txt.gz&dir=data/historical/stdmet/"
+
+years <- c(2000:2019)
+
+urls <- str_c(url1, years, url2, sep = "")
+
+filenames <- str_c("mr", years, sep = "")
+
+###  Read the data from the website
+
+N <- length(urls)
+colname_1=colnames(read.table(urls[1],fill=TRUE, header = TRUE))
+colname_2=colnames(read.table(urls[7],fill=TRUE, header = TRUE))
+for (i in 1:N){
+  suppressMessages(  ###  This stops the annoying messages on your screen.  Do this last.
+    assign(filenames[i], read.table(urls[i],fill=TRUE ,header = TRUE))
+  )
+    
+  file <- get(filenames[i])
+  if(ncol(file)==17){
+    colnames(file)=colname_1
+  }else{
+    colnames(file)=colname_2
+  }
+  
+  if(i == 1){
+    MR <- file
+  }else{
+    ###use dplyr package to bind the data
+    MR <- dplyr::bind_rows(MR, file)
+  }
+}
+```
+
+Now MR should contain all the data detected by National Data Buoy Center for the 
+last 20 days.
+
+# ***Cleaning the data***
+Then we want to see what is the data look like now? after using summary(MR),
+We found that there are still a lot of details need to be improved .
+
+```{r}
+summary(MR)
+
+```
+
+There are 4 columns give us information about date and time, we need to transform these data into posix numbers in 1 column. using lubridate package.
+
+```{r}
+#transform time data
+MR=data.frame(MR)
+time=MR%>% select(YYYY,MM,DD,hh)
+time=make_datetime(MR$YYYY,time$MM,time$DD,time$hh)
+time=data.frame(time)
+#add it to MR
+MR=dplyr::mutate(time,MR)
+#remove the old date&time data
+MR=MR[,-c(2,3,4,5)]
+MR$time=as.POSIXct(MR$time)
+```
+
+Now we have all the information of time in one column! 
+However, from the summary, we also notice that there are some useless variables such as "mm","DEWP","VIS"..... the observations of these variables: 99;999;9999
+or NA are obviously not real number. We exclude them from the data.
+
+```{r}
+#found that:WVHT,DPD,APD,MWD,DEWP,VIS TIDE,MM are all useless, delete them from the dataset
+MR=MR[,-c(5,6,7,8,12,13,14,15)]
+summary(MR)
+```
+
+The cleaning procedure is not over yet. By summary(MR) again, we notice that there are still lot of unreal observations value for the remaining variables. Because we have huge number of observations (more than 155000), delete these observations won't cause too much damages to our dataset. So we remove observations which has values such as 99, 999.
+
+```{r}
+#delete outliers
+MR=filter(MR,MR$WD<999&MR$WSPD<99&MR$GST<99&MR$BAR<9999&MR$ATMP<999&MR$WTMP<999)
+```
+
+# ***Sampling the data***
+Finally we finished cleaning the data, However, the size of dataset is still too big---we have to sampling the data to reduce the number of observations in the dataset  without reducing the amount of information in the data. So I use the mean value for each day.
+
+```{r}
+#sampling the data, reduce data size by using the mean value for each day.
+MR2=MR%>%group_by(date(time))%>%summarize(mean(WD),mean(WSPD),mean(GST),mean(BAR),mean(ATMP),mean(WTMP))
+summary(MR2)
+```
+
+# ***Analyzing the data***
+It's time to see the trend of the temperature! One thing we need to take into considered is the seasonal fluctuation, to avoid this index, we generate a simple time series plot to show the actual trend of both Air temperature and sea surface temperature
+
+```{r}
+#time series plot to ignore seasonal fluctuation
+par(mfrow=c(1,2))
+ATMP=ts(MR2$`mean(ATMP)`,frequency =365,start=c(2000,1))
+TS1=decompose(ATMP)
+plot(TS1$trend,main="Air temperature")
+WTMP=ts(MR2$`mean(WTMP)`,frequency =365,start=c(2000,1))
+TS2=decompose(WTMP)
+plot(TS2$trend,main="sea surface temperature")
+```
+
+As we can see from the plot, the Air temperature and sea surface temperature has a very similar trend during the last 20 years.(almost the same)
+Apart from a sharp decrease in 2007(I guess the buoy broke down that year or something else happened), there is an overall upward trend for temperature and it reached to a peak at about 2014.
+
+Further to prove the global warming is real, I biuld a linear regression with time and temperature.
+
+```{r}
+fit1=lm(TS1$trend~MR2$`date(time)`)
+fit2=lm(TS2$trend~MR2$`date(time)`)
+coef(fit1)[2]
+coef(fit2)[2]
+```
+
+The coefficient for date correspound to temperature are positive number(although it's small, it make sense because the temperature won't change fast and the temperture in 2007 is too low)
+
+# ***Summarize***
+From my analyze above, I can answer the question mentioned before: yes, Global warming is real,the temperature is not rising fast, but we need to pay attention to it.
+
+# ***Curiosity***
+There are some questions I'm curious about after finishing the analyse part.
+* Firstly, What happened in 2007? The temperature dropped sharply that year? 
+* Secondly, Using data from past 20 years is not enough. Actually, We can't see a very obvious trend for the climate change from last 20 years' plot. We need more data, maybe data stared from 1980.
+* Using data collected by only one buoy may limit the Credibility of our analysis. We should combine data collected by buoy's from different locations all over the world to prove climate changes.
+
+# ***reference***
+R packages: tidyverse; stringr; lubridate; dplyr
+cheatshit:
+https://rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf
+https://evoldyn.gitlab.io/evomics-2018/ref-sheets/R_lubridate.pdf
+data resourses:
+https://www.ndbc.noaa.gov/
+
+
+
