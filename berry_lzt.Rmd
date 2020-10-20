@@ -1,0 +1,165 @@
+---
+title: "Berries Project"
+author: "Zhitian Liu"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Project discription
+In this project, we want to firstly clean the dataset "berry" and then do EDA, biuld a
+shiny app to access the EDA easily
+### 1 Data Cleaning
+```{r}
+library(tidyverse)
+library(ggplot2)
+```
+
+
+
+
+### Read the data and select meaningful columns
+These data were collected from the USDA database selector. It contains information of 3 kinds of berries: blueberry;raspberry and strawberry. We only look at the strawberry part in the rest of project.
+After look at the data, we find that the berries data had only 8 out of 21 columns containing meaningful data.
+```{r}
+berry = read.csv("C:/Users/Lenovo/Desktop/berries.csv")
+head(berry)
+meaningful_berry = berry %>% select(Year,
+                                    Period,
+                                    State,
+                                    Commodity,
+                                    Data.Item,
+                                    Domain,
+                                    Domain.Category,
+                                    Value)
+
+```
+
+### Look at the column-"value"
+The "value" column contains the value of berries (the kind of value is described in the column "data.item" ), This should be a numeric list. 
+
+```{r}
+meaningful_berry$Value=as.numeric(meaningful_berry$Value)
+str(meaningful_berry$Value)
+```
+
+### Look at the Strawberries
+Now we concentrate on the strawberry observations, use filter function to extract the strawberry data.
+
+
+```{r}
+strawberry=meaningful_berry %>% filter(Commodity=="STRAWBERRIES")
+#And we only use the data with period "year"
+#strawberry=strawberry %>% filter(Period=="YEAR")
+# Since there are a lot of NA in the "value" column, we choose to delete these observations.
+strawberry=strawberry %>% drop_na()
+# Summary of the dataset
+summary(strawberry)
+
+```
+
+
+#### Cleaning "Data Item" column
+The most difficult part to clean is "data column", it includes lot of information. The most important information, in my opinion, is the measurement of value.
+```{r}
+straw_item = strawberry$Data.Item
+# Replace "-" with ","
+straw_item = gsub(" - ", ",", straw_item)
+
+#extract the measurement of value in each observations
+strawberry$measurement = str_extract_all(straw_item, "MEASURED IN.*[^, /AVG]|ACRES.*")
+strawberry$measurement = str_replace(strawberry$measurement, ",", "")
+strawberry$measurement = trimws(strawberry$measurement)
+head(strawberry)
+
+
+```
+
+### Finalise the data which we would use to do the eda
+Now, in the strawberry dataset, we have the state column, the year column, also we have the value and measurement for each observations. I decided to use these 4 variables to do a exploratory data analysis.
+```{r}
+strawberry = strawberry %>% select(Year, State, Value, measurement)
+head(strawberry)
+view(strawberry)
+write.csv(strawberry, file="C:/Users/Lenovo/Desktop/strawberry.csv")
+```
+
+## 2 Exploratory Data Analysis
+### Check how many kinds of measurements are there in the strawberry dataset.
+Now we can do some EDA using strawberry data. Fistly, we can check how many kinds of measurements are there in the strawberry dataset.
+```{r}
+strawberry_measure <- strawberry %>%
+  group_by(measurement) %>%
+  summarize(count = n(),)
+view(strawberry_measure)
+
+```
+Hence, We can notice that there are 13 different measurements.
+
+### Value measured in LB / ACRE
+Firstly we can look at the mean values which are MEASURED IN LB / ACRE / APPLICATION and MEASURED IN LB / ACRE / YEAR in different state through time. We generate figures to show the trend of mean values changing with years in different states.
+```{r}
+
+data_L_A_A = filter(strawberry, measurement == "MEASURED IN LB / ACRE / APPLICATION")
+data_L_A_A = data_L_A_A %>% group_by(State, Year) %>% summarise(L_A_A = mean(Value))
+ggplot(data = data_L_A_A, mapping = aes(x = Year, y = L_A_A)) + geom_point(aes(color =
+                                                                                 State)) + geom_line(aes(color = State)) +
+  ggtitle("strawberry LB / ACRE / APPLICATION value from 2016-2019")
+
+data_L_A_Y = filter(strawberry, measurement == "MEASURED IN LB / ACRE / YEAR")
+data_L_A_Y = data_L_A_Y %>% group_by(State, Year) %>% summarise(L_A_Y = mean(Value))
+ggplot(data = data_L_A_Y, mapping = aes(x = Year, y = L_A_Y)) + geom_point(aes(color =
+                                                                                 State)) + geom_line(aes(color = State)) +
+  ggtitle("strawberry LB / ACRE / Year value from 2016-2019")
+
+```
+From the figures, we know that the production efficiency of strawberry in California is much more higher than production efficiency in Washington. Note that we miss the data in 2017. We only have the data of Washington in 2016, it has the lowest production rate in 2016 among all 3 states.
+
+### Value measured in LB
+After knowing the efficiency of strawberry production, we now look at the production capacity. that is, the observations measured in LB.
+```{r}
+data_LB = filter(strawberry, measurement == "MEASURED IN LB")
+#We sum up the values in different observations to get the total strawberry production in each state each year.
+data_LB = data_LB %>% group_by(State, Year) %>% summarise(LB = sum(Value))
+ggplot(data = data_LB, mapping = aes(x = Year, y = LB)) + geom_point(aes(color =
+                                                                                 State)) + geom_line(aes(color = State)) +
+  ggtitle("strawberry LB value from 2016-2019")
+
+```
+The above figure shows that the production output of strawberry in Washington is still the lowest in 2016. The amount of strawberry produced in California is still the highest among all states.
+
+### The price value measured in $/CWT
+Now let's look at the price level of strawberry in different states.
+```{r}
+data_price = filter(strawberry, measurement == "MEASURED IN $ / CWT")
+data_price = data_price %>% group_by(State, Year) %>% summarise(price = mean(Value))
+ggplot(data = data_price, mapping = aes(x = Year, y = price)) + geom_point(aes(color =
+                                                                                 State)) + geom_line(aes(color = State)) +
+  ggtitle("strawberry price level from 2016-2019")
+```
+
+
+
+From the above figure, we can get the information that the strawberry in New York is most expensive. California's strawberry was kept in a very low price level through all these years.
+
+## 3 Conclusion
+After doing some EDA, we know that California is the best place to buy strawberries. Because it has higher production capacity and lower price level.
+
+## reference
+Some thoughts of data cleaning and EDA come from my classmates, and I agree with it.
+
+
+
+
+
+
+
+
+
+
+
+
+
